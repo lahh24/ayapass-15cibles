@@ -134,6 +134,16 @@ export async function loadInitialData(
   return { partners: DEFAULT_PARTNERS, activities: [] };
 }
 
+// Google Sheets returns percentages as decimals (0.6 instead of 60%)
+function normalizePayoutPct(val: string): string {
+  if (!val) return '';
+  if (val.includes('%')) return val;
+  const num = parseFloat(val);
+  if (!isNaN(num) && num > 0 && num <= 1) return `${Math.round(num * 100)}%`;
+  if (!isNaN(num) && num > 1) return `${Math.round(num)}%`;
+  return val;
+}
+
 function mapToPartner(row: Record<string, string>): Partner {
   return {
     id: row.id || '',
@@ -152,7 +162,7 @@ function mapToPartner(row: Record<string, string>): Partner {
     tier: (row.tier as Partner['tier']) || 'C',
     prixPublic: row.prixPublic || '',
     payoutMAD: row.payoutMAD || '',
-    payoutPct: row.payoutPct || '',
+    payoutPct: normalizePayoutPct(row.payoutPct || ''),
     priority: (row.priority as Partner['priority']) || 'MOYENNE',
     pitchAngle: row.pitchAngle || '',
     objection: row.objection || '',
