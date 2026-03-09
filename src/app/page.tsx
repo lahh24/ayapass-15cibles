@@ -7,14 +7,16 @@ import Dashboard from '@/components/Dashboard';
 import PartnersTable from '@/components/PartnersTable';
 import Pipeline from '@/components/Pipeline';
 import RoutePlanner from '@/components/RoutePlanner';
+import PitchPrep from '@/components/PitchPrep';
 
-type Tab = 'dashboard' | 'partners' | 'pipeline' | 'route';
+type Tab = 'dashboard' | 'partners' | 'pipeline' | 'route' | 'pitch';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'partners', label: 'Partenaires' },
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'route', label: 'Route' },
+  { id: 'pitch', label: 'Pitch Prep' },
 ];
 
 export default function Home() {
@@ -62,6 +64,7 @@ export default function Home() {
           {activeTab === 'partners' && <PartnersTable />}
           {activeTab === 'pipeline' && <Pipeline />}
           {activeTab === 'route' && <RoutePlanner />}
+          {activeTab === 'pitch' && <PitchPrep />}
         </main>
       </div>
     </StoreProvider>

@@ -1,8 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { useStore } from '@/lib/store';
-import { PIPELINE_STAGES } from '@/lib/data';
-import { Partner } from '@/types';
+import { PIPELINE_STAGES, PRICING_TIERS } from '@/lib/data';
 
 function KPICard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -37,6 +37,7 @@ function FunnelBar({ stage, count, total }: { stage: string; count: number; tota
 
 export default function Dashboard() {
   const { partners, activities } = useStore();
+  const [showPricing, setShowPricing] = useState(false);
 
   const byStatus = (s: string) => partners.filter((p) => p.status === s).length;
   const byTier = (t: string) => partners.filter((p) => p.tier === t).length;
@@ -46,13 +47,13 @@ export default function Dashboard() {
   const signed = byStatus('Signé');
   const conversionRate = visited > 0 ? Math.round((signed / visited) * 100) : 0;
 
-  // Overdue follow-ups: partners with a followup date in the past
+  // Overdue follow-ups
   const overdue = partners.filter((p) => {
     if (!p.followup) return false;
     return new Date(p.followup) < new Date();
   });
 
-  // Next actions: partners not yet contacted or in early stages
+  // Next actions
   const nextActions = partners
     .filter((p) => p.status !== 'Signé' && p.status !== 'Refusé')
     .sort((a, b) => {
@@ -61,7 +62,7 @@ export default function Dashboard() {
     })
     .slice(0, 5);
 
-  const categories = ['Wellness', 'Food', 'Adventure', 'Entertainment', 'Gardens', 'Social Impact', 'Family'];
+  const categories = ['Wellness', 'Food & Culinary', 'Adventure', 'Entertainment', 'Gardens', 'Social Impact', 'Family'];
 
   return (
     <div className="space-y-6">
@@ -69,7 +70,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KPICard label="Total Cibles" value={partners.length} />
         <KPICard label="Signés" value={signed} sub={`sur ${partners.length}`} />
-        <KPICard label="Conversion" value={`${conversionRate}%`} sub="Visités → Signés" />
+        <KPICard label="Conversion" value={`${conversionRate}%`} sub="Visités -> Signés" />
         <KPICard label="Activités" value={activities.length} />
       </div>
 
@@ -127,6 +128,44 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Pricing Model Reference (collapsible) */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowPricing(!showPricing)}
+          className="w-full px-5 py-3 flex items-center justify-between text-sm font-semibold text-gray-300 uppercase tracking-wide hover:bg-zinc-800/50 transition-colors"
+        >
+          <span>Modèle de Pricing (Référence)</span>
+          <span className="text-gray-500">{showPricing ? '−' : '+'}</span>
+        </button>
+        {showPricing && (
+          <div className="px-5 pb-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-700">
+                  <th className="text-left py-2 text-gray-500 font-medium">Tier</th>
+                  <th className="text-left py-2 text-gray-500 font-medium">Définition</th>
+                  <th className="text-left py-2 text-gray-500 font-medium">Payout</th>
+                  <th className="text-left py-2 text-gray-500 font-medium">Exemples</th>
+                </tr>
+              </thead>
+              <tbody>
+                {PRICING_TIERS.map((t) => (
+                  <tr key={t.tier} className="border-b border-zinc-800 last:border-0">
+                    <td className="py-2">
+                      <TierBadge tier={t.tier} />
+                      <span className="ml-2 text-gray-300">{t.name}</span>
+                    </td>
+                    <td className="py-2 text-gray-400">{t.definition}</td>
+                    <td className="py-2 text-orange-400 font-medium">{t.payout}</td>
+                    <td className="py-2 text-gray-500 text-xs">{t.examples}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

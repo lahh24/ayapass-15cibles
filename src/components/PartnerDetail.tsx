@@ -72,7 +72,7 @@ export default function PartnerDetail({ partner, onClose }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <InfoField label="Adresse" value={partner.address} />
             <InfoField label="Téléphone" value={partner.phone} link={`tel:${partner.phone}`} />
-            <InfoField label="WhatsApp" value={partner.whatsapp} link={`https://wa.me/${partner.whatsapp.replace(/[^0-9+]/g, '')}`} />
+            <InfoField label="WhatsApp" value={partner.whatsapp} link={partner.whatsapp ? `https://wa.me/${partner.whatsapp.replace(/[\s+]/g, '')}` : undefined} />
             <InfoField label="Email" value={partner.email} link={`mailto:${partner.email}`} />
             <InfoField label="Site Web" value={partner.website} link={partner.website} />
             <InfoField label="Instagram" value={partner.instagram} />
@@ -90,7 +90,7 @@ export default function PartnerDetail({ partner, onClose }: Props) {
             </div>
             <div className="bg-zinc-800 rounded-lg p-3 text-center">
               <div className="text-xs text-gray-500">Payout %</div>
-              <div className="text-lg font-bold text-orange-400">{partner.payoutPct}%</div>
+              <div className="text-lg font-bold text-orange-400">{partner.payoutPct}</div>
             </div>
           </div>
 

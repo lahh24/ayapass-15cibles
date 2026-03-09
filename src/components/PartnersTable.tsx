@@ -60,7 +60,7 @@ export default function PartnersTable() {
         />
         <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-gray-300">
           <option value="all">Toutes catégories</option>
-          {['Wellness', 'Food', 'Adventure', 'Entertainment', 'Gardens', 'Social Impact', 'Family'].map((c) => (
+          {['Wellness', 'Food & Culinary', 'Adventure', 'Entertainment', 'Gardens', 'Social Impact', 'Family'].map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
@@ -111,14 +111,14 @@ export default function PartnersTable() {
                 <td className="px-3 py-2 text-gray-400 text-xs">{p.zone}</td>
                 <td className="px-3 py-2"><TierBadge tier={p.tier} /></td>
                 <td className="px-3 py-2 text-gray-300">{p.prixPublic} MAD</td>
-                <td className="px-3 py-2 text-gray-300">{p.payoutPct}%</td>
+                <td className="px-3 py-2 text-gray-300">{p.payoutPct}</td>
                 <td className="px-3 py-2"><PriorityBadge priority={p.priority} /></td>
                 <td className="px-3 py-2"><StatusBadge status={p.status} /></td>
                 <td className="px-3 py-2 text-gray-400 text-xs">{p.jourVisite}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-1">
-                    <a href={`https://wa.me/${p.whatsapp.replace(/[^0-9+]/g, '')}`} target="_blank" title="WhatsApp" className="p-1 rounded hover:bg-green-500/20 text-green-400 text-xs">WA</a>
-                    <a href={`mailto:${p.email}`} title="Email" className="p-1 rounded hover:bg-blue-500/20 text-blue-400 text-xs">@</a>
+                    {p.whatsapp && <a href={`https://wa.me/${p.whatsapp.replace(/[\s+]/g, '')}`} target="_blank" title="WhatsApp" className="p-1 rounded hover:bg-green-500/20 text-green-400 text-xs">WA</a>}
+                    {p.email && <a href={`mailto:${p.email}`} title="Email" className="p-1 rounded hover:bg-blue-500/20 text-blue-400 text-xs">@</a>}
                     <a href={`tel:${p.phone}`} title="Appeler" className="p-1 rounded hover:bg-purple-500/20 text-purple-400 text-xs">Tel</a>
                   </div>
                 </td>

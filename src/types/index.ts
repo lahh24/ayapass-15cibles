@@ -1,4 +1,4 @@
-export type Category = 'Wellness' | 'Food' | 'Adventure' | 'Entertainment' | 'Gardens' | 'Social Impact' | 'Family';
+export type Category = 'Wellness' | 'Food & Culinary' | 'Adventure' | 'Entertainment' | 'Gardens' | 'Social Impact' | 'Family';
 export type Tier = 'A' | 'B' | 'C';
 export type Priority = 'TRÈS HAUTE' | 'HAUTE' | 'MOYENNE' | 'BASSE';
 export type PipelineStatus = 'À contacter' | 'WhatsApp envoyé' | 'RDV pris' | 'Visite faite' | 'Signé' | 'Refusé';
@@ -19,9 +19,9 @@ export interface Partner {
   status: PipelineStatus;
   notes: string;
   tier: Tier;
-  prixPublic: number;
-  payoutMAD: number;
-  payoutPct: number;
+  prixPublic: string;
+  payoutMAD: string;
+  payoutPct: string;
   priority: Priority;
   pitchAngle: string;
   objection: string;

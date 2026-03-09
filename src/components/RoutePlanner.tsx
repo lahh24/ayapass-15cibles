@@ -45,7 +45,7 @@ export default function RoutePlanner() {
                   <div className="flex items-center gap-3 shrink-0">
                     <StatusBadge status={p.status} />
                     <div className="flex gap-1">
-                      <a href={`https://wa.me/${p.whatsapp.replace(/[^0-9+]/g, '')}`} target="_blank" className="p-1.5 rounded-lg hover:bg-green-500/20 text-green-400 text-xs font-medium">WA</a>
+                      {p.whatsapp && <a href={`https://wa.me/${p.whatsapp.replace(/[\s+]/g, '')}`} target="_blank" className="p-1.5 rounded-lg hover:bg-green-500/20 text-green-400 text-xs font-medium">WA</a>}
                       <a href={`tel:${p.phone}`} className="p-1.5 rounded-lg hover:bg-purple-500/20 text-purple-400 text-xs font-medium">Tel</a>
                     </div>
                   </div>
