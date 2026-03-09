@@ -1,0 +1,164 @@
+import { Partner, Activity, SyncStatus } from '@/types';
+import { DEFAULT_PARTNERS } from './data';
+
+const SYNC_API_URL = process.env.NEXT_PUBLIC_SYNC_API_URL || '';
+const STORAGE_KEY_PARTNERS = 'ayapass_15cibles_partners';
+const STORAGE_KEY_ACTIVITIES = 'ayapass_15cibles_activities';
+
+let syncQueue: (() => Promise<void>)[] = [];
+let processing = false;
+
+export function getSyncApiUrl(): string {
+  return SYNC_API_URL;
+}
+
+// localStorage helpers
+export function saveToLocal(partners: Partner[], activities: Activity[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY_PARTNERS, JSON.stringify(partners));
+    localStorage.setItem(STORAGE_KEY_ACTIVITIES, JSON.stringify(activities));
+  } catch {
+    console.warn('localStorage save failed');
+  }
+}
+
+export function loadFromLocal(): { partners: Partner[] | null; activities: Activity[] | null } {
+  try {
+    const p = localStorage.getItem(STORAGE_KEY_PARTNERS);
+    const a = localStorage.getItem(STORAGE_KEY_ACTIVITIES);
+    return {
+      partners: p ? JSON.parse(p) : null,
+      activities: a ? JSON.parse(a) : null,
+    };
+  } catch {
+    return { partners: null, activities: null };
+  }
+}
+
+// Cloud fetch
+export async function fetchFromCloud(sheet: string): Promise<Record<string, string>[] | null> {
+  if (!SYNC_API_URL) return null;
+  try {
+    const res = await fetch(`${SYNC_API_URL}?sheet=${sheet}`, { cache: 'no-store' });
+    const json = await res.json();
+    if (json.success && json.data) return json.data;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function syncToCloud(
+  sheet: string,
+  data: Record<string, unknown>[],
+  onStatus: (s: SyncStatus) => void
+) {
+  if (!SYNC_API_URL) {
+    onStatus('offline');
+    return;
+  }
+  onStatus('syncing');
+  try {
+    const res = await fetch(SYNC_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheet, action: 'sync', data }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      onStatus('synced');
+    } else {
+      onStatus('error');
+    }
+  } catch {
+    onStatus('error');
+  }
+}
+
+// Queue processor
+export function queueSync(fn: () => Promise<void>) {
+  syncQueue.push(fn);
+  processQueue();
+}
+
+async function processQueue() {
+  if (processing) return;
+  processing = true;
+  while (syncQueue.length > 0) {
+    const task = syncQueue.shift()!;
+    try {
+      await task();
+    } catch {
+      // retry after 5s
+      await new Promise((r) => setTimeout(r, 5000));
+      syncQueue.unshift(task);
+    }
+  }
+  processing = false;
+}
+
+// Initial load logic
+export async function loadInitialData(
+  onStatus: (s: SyncStatus) => void
+): Promise<{ partners: Partner[]; activities: Activity[] }> {
+  // Try cloud first
+  onStatus('syncing');
+  const cloudPartners = await fetchFromCloud('Partners');
+  const cloudActivities = await fetchFromCloud('Activities');
+
+  if (cloudPartners && cloudPartners.length > 0) {
+    onStatus('synced');
+    const partners = cloudPartners.map(mapToPartner);
+    const activities = (cloudActivities || []).map(mapToActivity);
+    saveToLocal(partners, activities);
+    return { partners, activities };
+  }
+
+  // Try localStorage
+  const local = loadFromLocal();
+  if (local.partners && local.partners.length > 0) {
+    onStatus('offline');
+    return { partners: local.partners, activities: local.activities || [] };
+  }
+
+  // Default data
+  onStatus('offline');
+  return { partners: DEFAULT_PARTNERS, activities: [] };
+}
+
+function mapToPartner(row: Record<string, string>): Partner {
+  return {
+    id: row.id || '',
+    name: row.name || '',
+    category: row.category as Partner['category'],
+    zone: row.zone || '',
+    address: row.address || '',
+    phone: row.phone || '',
+    whatsapp: row.whatsapp || '',
+    email: row.email || '',
+    website: row.website || '',
+    instagram: row.instagram || '',
+    jourVisite: row.jourVisite as Partner['jourVisite'],
+    status: (row.status as Partner['status']) || 'À contacter',
+    notes: row.notes || '',
+    tier: (row.tier as Partner['tier']) || 'C',
+    prixPublic: Number(row.prixPublic) || 0,
+    payoutMAD: Number(row.payoutMAD) || 0,
+    payoutPct: Number(row.payoutPct) || 0,
+    priority: (row.priority as Partner['priority']) || 'MOYENNE',
+    pitchAngle: row.pitchAngle || '',
+    objection: row.objection || '',
+    reponse: row.reponse || '',
+    followup: row.followup || '',
+  };
+}
+
+function mapToActivity(row: Record<string, string>): Activity {
+  return {
+    id: row.id || '',
+    partnerId: row.partnerId || '',
+    type: (row.type as Activity['type']) || 'note',
+    details: row.details || '',
+    timestamp: row.timestamp || new Date().toISOString(),
+  };
+}
