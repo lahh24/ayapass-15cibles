@@ -5,8 +5,8 @@ const SYNC_API_URL = process.env.NEXT_PUBLIC_SYNC_API_URL || '';
 const STORAGE_KEY_PARTNERS = 'ayapass_15cibles_partners';
 const STORAGE_KEY_ACTIVITIES = 'ayapass_15cibles_activities';
 
-let syncQueue: (() => Promise<void>)[] = [];
-let processing = false;
+let syncRunning = false;
+let syncPending = false;
 
 export function getSyncApiUrl(): string {
   return SYNC_API_URL;
@@ -88,22 +88,51 @@ export function addLocalActivity(activity: Activity) {
 }
 
 /**
- * Pull-merge-push:
- * 1. Fetch latest partners & activities from cloud
- * 2. For partners: use cloud as base, overlay only locally-dirty partners
- * 3. For activities: union by ID (cloud + local new ones)
- * 4. Push merged result to cloud
+ * Pull-merge-push with mutex:
+ * - Only one sync can run at a time
+ * - If called while running, queues one follow-up run (coalesced)
+ * - The follow-up will use the latest refs, so all batched changes are included
  */
 export async function pullMergePush(
+  getLocalPartners: () => Partner[],
+  getLocalActivities: () => Activity[],
+  onStatus: (s: SyncStatus) => void,
+  onResult: (result: { mergedPartners: Partner[]; mergedActivities: Activity[] }) => void,
+): Promise<void> {
+  if (!SYNC_API_URL) {
+    onStatus('offline');
+    return;
+  }
+
+  // Mutex: if already running, mark pending and return
+  if (syncRunning) {
+    syncPending = true;
+    console.log('[pullMergePush] Already running, queued follow-up');
+    return;
+  }
+
+  syncRunning = true;
+
+  try {
+    await doPullMergePush(getLocalPartners(), getLocalActivities(), onStatus, onResult);
+  } finally {
+    syncRunning = false;
+
+    // If another sync was requested while we were running, do one more pass
+    if (syncPending) {
+      syncPending = false;
+      console.log('[pullMergePush] Running queued follow-up');
+      await pullMergePush(getLocalPartners, getLocalActivities, onStatus, onResult);
+    }
+  }
+}
+
+async function doPullMergePush(
   localPartners: Partner[],
   localActivities: Activity[],
   onStatus: (s: SyncStatus) => void,
-): Promise<{ mergedPartners: Partner[]; mergedActivities: Activity[] } | null> {
-  if (!SYNC_API_URL) {
-    onStatus('offline');
-    return null;
-  }
-
+  onResult: (result: { mergedPartners: Partner[]; mergedActivities: Activity[] }) => void,
+): Promise<void> {
   onStatus('syncing');
   console.log('[pullMergePush] Dirty partners:', [...dirtyPartnerIds]);
   console.log('[pullMergePush] New local activities:', localNewActivities.length);
@@ -120,10 +149,8 @@ export async function pullMergePush(
       console.log('[pullMergePush] Cloud partners:', cloudPartners.length, '| dirty local:', dirtyPartnerIds.size);
 
       if (dirtyPartnerIds.size === 0) {
-        // No local changes — just use cloud
         mergedPartners = cloudPartners;
       } else {
-        // Build map from cloud, overlay dirty local partners
         const partnerMap = new Map<string, Partner>();
         for (const p of cloudPartners) partnerMap.set(p.id, p);
         for (const p of localPartners) {
@@ -134,7 +161,6 @@ export async function pullMergePush(
         mergedPartners = Array.from(partnerMap.values());
       }
     } else {
-      // Cloud empty — push local as-is
       console.log('[pullMergePush] Cloud empty, using local partners');
       mergedPartners = localPartners;
     }
@@ -144,7 +170,6 @@ export async function pullMergePush(
     const activityMap = new Map<string, Activity>();
     for (const a of cloudActivities) activityMap.set(a.id, a);
     for (const a of localActivities) activityMap.set(a.id, a);
-    // Also add any brand-new local activities not yet in localActivities state
     for (const a of localNewActivities) activityMap.set(a.id, a);
     const mergedActivities = Array.from(activityMap.values())
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
@@ -161,34 +186,11 @@ export async function pullMergePush(
 
     onStatus('synced');
     console.log('[pullMergePush] Sync complete — partners:', mergedPartners.length, '| activities:', mergedActivities.length);
-    return { mergedPartners, mergedActivities };
+    onResult({ mergedPartners, mergedActivities });
   } catch (e) {
     console.warn('[pullMergePush] Sync failed:', e);
     onStatus('error');
-    return null;
   }
-}
-
-// Queue processor
-export function queueSync(fn: () => Promise<void>) {
-  syncQueue.push(fn);
-  processQueue();
-}
-
-async function processQueue() {
-  if (processing) return;
-  processing = true;
-  while (syncQueue.length > 0) {
-    const task = syncQueue.shift()!;
-    try {
-      await task();
-    } catch {
-      // retry after 5s
-      await new Promise((r) => setTimeout(r, 5000));
-      syncQueue.unshift(task);
-    }
-  }
-  processing = false;
 }
 
 // Initial load logic

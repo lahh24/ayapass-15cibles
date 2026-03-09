@@ -2,9 +2,10 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Partner, Activity, SyncStatus, PipelineStatus } from '@/types';
-import { loadInitialData, saveToLocal, pullMergePush, pollCloudData, markPartnerDirty, addLocalActivity, queueSync } from './sync';
+import { loadInitialData, saveToLocal, pullMergePush, pollCloudData, markPartnerDirty, addLocalActivity } from './sync';
 
 const POLL_INTERVAL = 30_000; // 30 seconds
+const DEBOUNCE_MS = 5_000;   // 5 seconds debounce before syncing
 
 interface StoreContextType {
   partners: Partner[];
@@ -27,6 +28,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [polling, setPolling] = useState(false);
   const partnersRef = useRef<Partner[]>([]);
   const activitiesRef = useRef<Activity[]>([]);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Apply merged result from cloud to local state
+  const applyMergedResult = useCallback((result: { mergedPartners: Partner[]; mergedActivities: Activity[] }) => {
+    partnersRef.current = result.mergedPartners;
+    activitiesRef.current = result.mergedActivities;
+    setPartners(result.mergedPartners);
+    setActivities(result.mergedActivities);
+    saveToLocal(result.mergedPartners, result.mergedActivities);
+  }, []);
 
   // Initial load
   useEffect(() => {
@@ -49,16 +60,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       try {
         const result = await pollCloudData();
         if (result) {
-          // Merge: cloud partners as base, overlay any locally-dirty partners
           const cloudMap = new Map(result.partners.map((p) => [p.id, p]));
-          // Keep locally-dirty partners from current state
           for (const p of partnersRef.current) {
-            // If partner was not in cloud, keep it (new local partner)
             if (!cloudMap.has(p.id)) cloudMap.set(p.id, p);
           }
           const merged = Array.from(cloudMap.values());
 
-          // Merge activities by ID
           const actMap = new Map<string, Activity>();
           for (const a of result.activities) actMap.set(a.id, a);
           for (const a of activitiesRef.current) actMap.set(a.id, a);
@@ -73,7 +80,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           setSyncStatus('synced');
         }
       } catch {
-        // Silent fail — don't disrupt the UI
+        // Silent fail
       }
       setPolling(false);
     };
@@ -82,24 +89,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [loading]);
 
-  // Pull-merge-push: saves locally, then queues a cloud sync that
-  // fetches latest from cloud, merges, and pushes back
-  const persistAll = useCallback(() => {
+  // Debounced cloud sync: waits 5s after last change, then does pull-merge-push.
+  // Multiple rapid changes reset the timer — only one sync fires.
+  const scheduleSync = useCallback(() => {
+    // Save to localStorage immediately (no debounce for offline backup)
     saveToLocal(partnersRef.current, activitiesRef.current);
-    queueSync(async () => {
-      const result = await pullMergePush(
-        partnersRef.current,
-        activitiesRef.current,
+
+    // Debounce the cloud sync
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+    debounceTimer.current = setTimeout(() => {
+      debounceTimer.current = null;
+      console.log('[scheduleSync] Debounce expired, starting pull-merge-push');
+      pullMergePush(
+        () => partnersRef.current,
+        () => activitiesRef.current,
         setSyncStatus,
+        applyMergedResult,
       );
-      if (result) {
-        partnersRef.current = result.mergedPartners;
-        activitiesRef.current = result.mergedActivities;
-        setPartners(result.mergedPartners);
-        setActivities(result.mergedActivities);
-        saveToLocal(result.mergedPartners, result.mergedActivities);
-      }
-    });
+    }, DEBOUNCE_MS);
+  }, [applyMergedResult]);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
   }, []);
 
   const updatePartner = useCallback((id: string, updates: Partial<Partner>) => {
@@ -107,10 +123,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setPartners((prev) => {
       const next = prev.map((p) => (p.id === id ? { ...p, ...updates } : p));
       partnersRef.current = next;
-      persistAll();
+      scheduleSync();
       return next;
     });
-  }, [persistAll]);
+  }, [scheduleSync]);
 
   const updateStatus = useCallback((id: string, status: PipelineStatus) => {
     markPartnerDirty(id);
@@ -130,13 +146,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setActivities((prevA) => {
         const nextA = [newActivity, ...prevA];
         activitiesRef.current = nextA;
-        persistAll();
+        scheduleSync();
         return nextA;
       });
 
       return next;
     });
-  }, [persistAll]);
+  }, [scheduleSync]);
 
   const addActivityFn = useCallback((activity: Omit<Activity, 'id' | 'timestamp'>) => {
     const newActivity: Activity = {
@@ -148,10 +164,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setActivities((prev) => {
       const next = [newActivity, ...prev];
       activitiesRef.current = next;
-      persistAll();
+      scheduleSync();
       return next;
     });
-  }, [persistAll]);
+  }, [scheduleSync]);
 
   return (
     <StoreContext.Provider value={{ partners, activities, syncStatus, polling, updatePartner, updateStatus, addActivity: addActivityFn, loading }}>
