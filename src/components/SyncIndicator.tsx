@@ -10,11 +10,14 @@ const statusConfig = {
 };
 
 export default function SyncIndicator() {
-  const { syncStatus } = useStore();
+  const { syncStatus, polling } = useStore();
   const cfg = statusConfig[syncStatus];
 
   return (
     <div className="flex items-center gap-2 text-xs text-gray-400">
+      {polling && (
+        <div className="w-3 h-3 border border-orange-400/50 border-t-orange-400 rounded-full animate-spin" />
+      )}
       <div className={`w-2 h-2 rounded-full ${cfg.color}`} />
       {cfg.label}
     </div>

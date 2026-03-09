@@ -2,12 +2,15 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Partner, Activity, SyncStatus, PipelineStatus } from '@/types';
-import { loadInitialData, saveToLocal, pullMergePush, markPartnerDirty, addLocalActivity, queueSync } from './sync';
+import { loadInitialData, saveToLocal, pullMergePush, pollCloudData, markPartnerDirty, addLocalActivity, queueSync } from './sync';
+
+const POLL_INTERVAL = 30_000; // 30 seconds
 
 interface StoreContextType {
   partners: Partner[];
   activities: Activity[];
   syncStatus: SyncStatus;
+  polling: boolean;
   updatePartner: (id: string, updates: Partial<Partner>) => void;
   updateStatus: (id: string, status: PipelineStatus) => void;
   addActivity: (activity: Omit<Activity, 'id' | 'timestamp'>) => void;
@@ -21,9 +24,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
   const [loading, setLoading] = useState(true);
+  const [polling, setPolling] = useState(false);
   const partnersRef = useRef<Partner[]>([]);
   const activitiesRef = useRef<Activity[]>([]);
 
+  // Initial load
   useEffect(() => {
     loadInitialData(setSyncStatus).then(({ partners: p, activities: a }) => {
       console.log('[StoreProvider] Setting partners:', p.length, '| activities:', a.length);
@@ -35,6 +40,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // Background polling every 30s
+  useEffect(() => {
+    if (loading) return;
+
+    const poll = async () => {
+      setPolling(true);
+      try {
+        const result = await pollCloudData();
+        if (result) {
+          // Merge: cloud partners as base, overlay any locally-dirty partners
+          const cloudMap = new Map(result.partners.map((p) => [p.id, p]));
+          // Keep locally-dirty partners from current state
+          for (const p of partnersRef.current) {
+            // If partner was not in cloud, keep it (new local partner)
+            if (!cloudMap.has(p.id)) cloudMap.set(p.id, p);
+          }
+          const merged = Array.from(cloudMap.values());
+
+          // Merge activities by ID
+          const actMap = new Map<string, Activity>();
+          for (const a of result.activities) actMap.set(a.id, a);
+          for (const a of activitiesRef.current) actMap.set(a.id, a);
+          const mergedAct = Array.from(actMap.values())
+            .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+          partnersRef.current = merged;
+          activitiesRef.current = mergedAct;
+          setPartners(merged);
+          setActivities(mergedAct);
+          saveToLocal(merged, mergedAct);
+          setSyncStatus('synced');
+        }
+      } catch {
+        // Silent fail — don't disrupt the UI
+      }
+      setPolling(false);
+    };
+
+    const interval = setInterval(poll, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [loading]);
+
   // Pull-merge-push: saves locally, then queues a cloud sync that
   // fetches latest from cloud, merges, and pushes back
   const persistAll = useCallback(() => {
@@ -45,7 +92,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         activitiesRef.current,
         setSyncStatus,
       );
-      // If merge returned updated data from cloud, update local state
       if (result) {
         partnersRef.current = result.mergedPartners;
         activitiesRef.current = result.mergedActivities;
@@ -108,7 +154,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [persistAll]);
 
   return (
-    <StoreContext.Provider value={{ partners, activities, syncStatus, updatePartner, updateStatus, addActivity: addActivityFn, loading }}>
+    <StoreContext.Provider value={{ partners, activities, syncStatus, polling, updatePartner, updateStatus, addActivity: addActivityFn, loading }}>
       {children}
     </StoreContext.Provider>
   );

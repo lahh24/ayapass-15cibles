@@ -301,3 +301,21 @@ function mapToActivity(row: Record<string, unknown>): Activity {
     timestamp: str(row.timestamp) || new Date().toISOString(),
   };
 }
+
+// Background poll: fetch latest from cloud without pushing anything
+export async function pollCloudData(): Promise<{ partners: Partner[]; activities: Activity[] } | null> {
+  try {
+    const cloudPartners = await fetchFromCloud('Partners');
+    const cloudActivities = await fetchFromCloud('Activities');
+    if (!cloudPartners || cloudPartners.length === 0) return null;
+
+    const partners = cloudPartners.map(mapToPartner).filter((p) => p.id && p.name);
+    if (partners.length === 0) return null;
+
+    const activities = (cloudActivities || []).map(mapToActivity);
+    console.log('[poll] Fetched', partners.length, 'partners,', activities.length, 'activities from cloud');
+    return { partners, activities };
+  } catch {
+    return null;
+  }
+}
