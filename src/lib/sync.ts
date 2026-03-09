@@ -36,7 +36,7 @@ export function loadFromLocal(): { partners: Partner[] | null; activities: Activ
 }
 
 // Cloud fetch
-export async function fetchFromCloud(sheet: string): Promise<Record<string, string>[] | null> {
+export async function fetchFromCloud(sheet: string): Promise<Record<string, unknown>[] | null> {
   if (!SYNC_API_URL) return null;
   try {
     const res = await fetch(`${SYNC_API_URL}?sheet=${sheet}`, { mode: 'cors', redirect: 'follow', cache: 'no-store' });
@@ -259,39 +259,45 @@ function normalizePayoutPct(val: string): string {
   return val;
 }
 
-function mapToPartner(row: Record<string, string>): Partner {
+// Google Sheets can return numbers instead of strings — coerce everything
+function str(val: unknown): string {
+  if (val == null) return '';
+  return String(val);
+}
+
+function mapToPartner(row: Record<string, unknown>): Partner {
   return {
-    id: row.id || '',
-    name: row.name || '',
-    category: row.category as Partner['category'],
-    zone: row.zone || '',
-    address: row.address || '',
-    phone: row.phone || '',
-    whatsapp: row.whatsapp || '',
-    email: row.email || '',
-    website: row.website || '',
-    instagram: row.instagram || '',
-    jourVisite: row.jourVisite as Partner['jourVisite'],
-    status: (row.status as Partner['status']) || 'À contacter',
-    notes: row.notes || '',
-    tier: (row.tier as Partner['tier']) || 'C',
-    prixPublic: row.prixPublic || '',
-    payoutMAD: row.payoutMAD || '',
-    payoutPct: normalizePayoutPct(row.payoutPct || ''),
-    priority: (row.priority as Partner['priority']) || 'MOYENNE',
-    pitchAngle: row.pitchAngle || '',
-    objection: row.objection || '',
-    reponse: row.reponse || '',
-    followup: row.followup || '',
+    id: str(row.id),
+    name: str(row.name),
+    category: str(row.category) as Partner['category'],
+    zone: str(row.zone),
+    address: str(row.address),
+    phone: str(row.phone),
+    whatsapp: str(row.whatsapp),
+    email: str(row.email),
+    website: str(row.website),
+    instagram: str(row.instagram),
+    jourVisite: str(row.jourVisite) as Partner['jourVisite'],
+    status: (str(row.status) as Partner['status']) || 'À contacter',
+    notes: str(row.notes),
+    tier: (str(row.tier) as Partner['tier']) || 'C',
+    prixPublic: str(row.prixPublic),
+    payoutMAD: str(row.payoutMAD),
+    payoutPct: normalizePayoutPct(str(row.payoutPct)),
+    priority: (str(row.priority) as Partner['priority']) || 'MOYENNE',
+    pitchAngle: str(row.pitchAngle),
+    objection: str(row.objection),
+    reponse: str(row.reponse),
+    followup: str(row.followup),
   };
 }
 
-function mapToActivity(row: Record<string, string>): Activity {
+function mapToActivity(row: Record<string, unknown>): Activity {
   return {
-    id: row.id || '',
-    partnerId: row.partnerId || '',
-    type: (row.type as Activity['type']) || 'note',
-    details: row.details || '',
-    timestamp: row.timestamp || new Date().toISOString(),
+    id: str(row.id),
+    partnerId: str(row.partnerId),
+    type: (str(row.type) as Activity['type']) || 'note',
+    details: str(row.details),
+    timestamp: str(row.timestamp) || new Date().toISOString(),
   };
 }
