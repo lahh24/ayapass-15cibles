@@ -8,6 +8,8 @@ import PartnersTable from '@/components/PartnersTable';
 import Pipeline from '@/components/Pipeline';
 import RoutePlanner from '@/components/RoutePlanner';
 import PitchPrep from '@/components/PitchPrep';
+import InstallPrompt from '@/components/InstallPrompt';
+import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration';
 
 type Tab = 'dashboard' | 'partners' | 'pipeline' | 'route' | 'pitch';
 
@@ -66,6 +68,8 @@ export default function Home() {
           {activeTab === 'route' && <RoutePlanner />}
           {activeTab === 'pitch' && <PitchPrep />}
         </main>
+        <InstallPrompt />
+        <ServiceWorkerRegistration />
       </div>
     </StoreProvider>
   );
