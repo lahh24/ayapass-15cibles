@@ -26,6 +26,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadInitialData(setSyncStatus).then(({ partners: p, activities: a }) => {
+      console.log('[StoreProvider] Setting partners:', p.length, '| activities:', a.length);
       setPartners(p);
       setActivities(a);
       partnersRef.current = p;

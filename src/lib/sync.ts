@@ -109,29 +109,58 @@ async function processQueue() {
 export async function loadInitialData(
   onStatus: (s: SyncStatus) => void
 ): Promise<{ partners: Partner[]; activities: Activity[] }> {
-  // Try cloud first
+  let partners: Partner[] = [];
+  let activities: Activity[] = [];
+
+  // Step 1: Try cloud
   onStatus('syncing');
-  const cloudPartners = await fetchFromCloud('Partners');
-  const cloudActivities = await fetchFromCloud('Activities');
+  try {
+    const cloudPartners = await fetchFromCloud('Partners');
+    const cloudActivities = await fetchFromCloud('Activities');
+    console.log('[loadInitialData] Cloud raw rows:', cloudPartners?.length ?? 'null');
 
-  if (cloudPartners && cloudPartners.length > 0) {
-    onStatus('synced');
-    const partners = cloudPartners.map(mapToPartner);
-    const activities = (cloudActivities || []).map(mapToActivity);
-    saveToLocal(partners, activities);
-    return { partners, activities };
+    if (cloudPartners && cloudPartners.length > 0) {
+      const mapped = cloudPartners.map(mapToPartner);
+      const valid = mapped.filter((p) => p.id && p.name);
+      console.log('[loadInitialData] Cloud valid partners:', valid.length);
+      if (valid.length > 0) {
+        partners = valid;
+        activities = (cloudActivities || []).map(mapToActivity);
+        onStatus('synced');
+      }
+    }
+  } catch (e) {
+    console.warn('[loadInitialData] Cloud fetch failed:', e);
   }
 
-  // Try localStorage
-  const local = loadFromLocal();
-  if (local.partners && local.partners.length > 0) {
+  // Step 2: Try localStorage
+  if (partners.length === 0) {
+    console.log('[loadInitialData] Cloud empty, trying localStorage...');
+    try {
+      const local = loadFromLocal();
+      const localValid = (local.partners || []).filter((p) => p.id && p.name);
+      console.log('[loadInitialData] localStorage valid partners:', localValid.length);
+      if (localValid.length > 0) {
+        partners = localValid;
+        activities = local.activities || [];
+        onStatus('offline');
+      }
+    } catch (e) {
+      console.warn('[loadInitialData] localStorage failed:', e);
+    }
+  }
+
+  // Step 3: ABSOLUTE LAST FALLBACK — hardcoded defaults, cannot fail
+  if (partners.length === 0) {
+    console.log('[loadInitialData] All sources empty — loading DEFAULT_PARTNERS (' + DEFAULT_PARTNERS.length + ')');
+    partners = DEFAULT_PARTNERS;
+    activities = [];
     onStatus('offline');
-    return { partners: local.partners, activities: local.activities || [] };
   }
 
-  // Default data
-  onStatus('offline');
-  return { partners: DEFAULT_PARTNERS, activities: [] };
+  console.log('[loadInitialData] Final partner count:', partners.length);
+  saveToLocal(partners, activities);
+  return { partners, activities };
 }
 
 // Google Sheets returns percentages as decimals (0.6 instead of 60%)
