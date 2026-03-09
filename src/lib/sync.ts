@@ -48,6 +48,17 @@ export async function fetchFromCloud(sheet: string): Promise<Record<string, stri
   }
 }
 
+// Prefix phone/whatsapp values with apostrophe so Google Sheets treats them as text
+function sanitizeForSheets(row: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...row };
+  for (const key of ['phone', 'whatsapp']) {
+    if (typeof result[key] === 'string' && result[key] && (result[key] as string).startsWith('+')) {
+      result[key] = "'" + result[key];
+    }
+  }
+  return result;
+}
+
 export async function syncToCloud(
   sheet: string,
   data: Record<string, unknown>[],
@@ -63,7 +74,7 @@ export async function syncToCloud(
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ sheet, action: 'sync', data }),
+      body: JSON.stringify({ sheet, action: 'sync', data: data.map(sanitizeForSheets) }),
     });
     // no-cors returns opaque response — assume success if no error thrown
     onStatus('synced');
