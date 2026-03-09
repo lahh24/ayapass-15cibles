@@ -48,6 +48,20 @@ export async function fetchFromCloud(sheet: string): Promise<Record<string, stri
   }
 }
 
+// Push data to cloud (raw POST, no merge)
+async function pushToCloud(
+  sheet: string,
+  data: Record<string, unknown>[],
+) {
+  if (!SYNC_API_URL) return;
+  await fetch(SYNC_API_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ sheet, action: 'sync', data: data.map(sanitizeForSheets) }),
+  });
+}
+
 // Prefix phone/whatsapp values with apostrophe so Google Sheets treats them as text
 function sanitizeForSheets(row: Record<string, unknown>): Record<string, unknown> {
   const result = { ...row };
@@ -59,27 +73,99 @@ function sanitizeForSheets(row: Record<string, unknown>): Record<string, unknown
   return result;
 }
 
-export async function syncToCloud(
-  sheet: string,
-  data: Record<string, unknown>[],
-  onStatus: (s: SyncStatus) => void
-) {
+// ─── Pull-Merge-Push sync ───────────────────────────────────────────
+
+// Track which partner IDs have been modified locally since last successful sync
+const dirtyPartnerIds = new Set<string>();
+const localNewActivities: Activity[] = [];
+
+export function markPartnerDirty(id: string) {
+  dirtyPartnerIds.add(id);
+}
+
+export function addLocalActivity(activity: Activity) {
+  localNewActivities.push(activity);
+}
+
+/**
+ * Pull-merge-push:
+ * 1. Fetch latest partners & activities from cloud
+ * 2. For partners: use cloud as base, overlay only locally-dirty partners
+ * 3. For activities: union by ID (cloud + local new ones)
+ * 4. Push merged result to cloud
+ */
+export async function pullMergePush(
+  localPartners: Partner[],
+  localActivities: Activity[],
+  onStatus: (s: SyncStatus) => void,
+): Promise<{ mergedPartners: Partner[]; mergedActivities: Activity[] } | null> {
   if (!SYNC_API_URL) {
     onStatus('offline');
-    return;
+    return null;
   }
+
   onStatus('syncing');
+  console.log('[pullMergePush] Dirty partners:', [...dirtyPartnerIds]);
+  console.log('[pullMergePush] New local activities:', localNewActivities.length);
+
   try {
-    await fetch(SYNC_API_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ sheet, action: 'sync', data: data.map(sanitizeForSheets) }),
-    });
-    // no-cors returns opaque response — assume success if no error thrown
+    // Step 1: Pull latest from cloud
+    const cloudPartnersRaw = await fetchFromCloud('Partners');
+    const cloudActivitiesRaw = await fetchFromCloud('Activities');
+
+    // Step 2: Merge partners — cloud is base, local dirty partners win
+    let mergedPartners: Partner[];
+    if (cloudPartnersRaw && cloudPartnersRaw.length > 0) {
+      const cloudPartners = cloudPartnersRaw.map(mapToPartner).filter((p) => p.id && p.name);
+      console.log('[pullMergePush] Cloud partners:', cloudPartners.length, '| dirty local:', dirtyPartnerIds.size);
+
+      if (dirtyPartnerIds.size === 0) {
+        // No local changes — just use cloud
+        mergedPartners = cloudPartners;
+      } else {
+        // Build map from cloud, overlay dirty local partners
+        const partnerMap = new Map<string, Partner>();
+        for (const p of cloudPartners) partnerMap.set(p.id, p);
+        for (const p of localPartners) {
+          if (dirtyPartnerIds.has(p.id)) {
+            partnerMap.set(p.id, p);
+          }
+        }
+        mergedPartners = Array.from(partnerMap.values());
+      }
+    } else {
+      // Cloud empty — push local as-is
+      console.log('[pullMergePush] Cloud empty, using local partners');
+      mergedPartners = localPartners;
+    }
+
+    // Step 3: Merge activities — union by ID
+    const cloudActivities = (cloudActivitiesRaw || []).map(mapToActivity);
+    const activityMap = new Map<string, Activity>();
+    for (const a of cloudActivities) activityMap.set(a.id, a);
+    for (const a of localActivities) activityMap.set(a.id, a);
+    // Also add any brand-new local activities not yet in localActivities state
+    for (const a of localNewActivities) activityMap.set(a.id, a);
+    const mergedActivities = Array.from(activityMap.values())
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    console.log('[pullMergePush] Merged activities:', mergedActivities.length,
+      '(cloud:', cloudActivities.length, '+ local new:', localNewActivities.length, ')');
+
+    // Step 4: Push merged data to cloud
+    await pushToCloud('Partners', mergedPartners as unknown as Record<string, unknown>[]);
+    await pushToCloud('Activities', mergedActivities as unknown as Record<string, unknown>[]);
+
+    // Clear dirty tracking
+    dirtyPartnerIds.clear();
+    localNewActivities.length = 0;
+
     onStatus('synced');
-  } catch {
+    console.log('[pullMergePush] Sync complete — partners:', mergedPartners.length, '| activities:', mergedActivities.length);
+    return { mergedPartners, mergedActivities };
+  } catch (e) {
+    console.warn('[pullMergePush] Sync failed:', e);
     onStatus('error');
+    return null;
   }
 }
 
@@ -112,7 +198,7 @@ export async function loadInitialData(
   let partners: Partner[] = [];
   let activities: Activity[] = [];
 
-  // Step 1: Try cloud
+  // Step 1: Try cloud (source of truth)
   onStatus('syncing');
   try {
     const cloudPartners = await fetchFromCloud('Partners');
@@ -133,7 +219,7 @@ export async function loadInitialData(
     console.warn('[loadInitialData] Cloud fetch failed:', e);
   }
 
-  // Step 2: Try localStorage
+  // Step 2: Try localStorage (only if cloud failed/empty)
   if (partners.length === 0) {
     console.log('[loadInitialData] Cloud empty, trying localStorage...');
     try {

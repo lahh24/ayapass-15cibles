@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Partner, Activity, SyncStatus, PipelineStatus } from '@/types';
-import { loadInitialData, saveToLocal, syncToCloud, queueSync } from './sync';
+import { loadInitialData, saveToLocal, pullMergePush, markPartnerDirty, addLocalActivity, queueSync } from './sync';
 
 interface StoreContextType {
   partners: Partner[];
@@ -35,22 +35,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const persistAll = useCallback((p: Partner[], a: Activity[]) => {
-    saveToLocal(p, a);
-    queueSync(() => syncToCloud('Partners', p as unknown as Record<string, unknown>[], setSyncStatus));
-    queueSync(() => syncToCloud('Activities', a as unknown as Record<string, unknown>[], setSyncStatus));
+  // Pull-merge-push: saves locally, then queues a cloud sync that
+  // fetches latest from cloud, merges, and pushes back
+  const persistAll = useCallback(() => {
+    saveToLocal(partnersRef.current, activitiesRef.current);
+    queueSync(async () => {
+      const result = await pullMergePush(
+        partnersRef.current,
+        activitiesRef.current,
+        setSyncStatus,
+      );
+      // If merge returned updated data from cloud, update local state
+      if (result) {
+        partnersRef.current = result.mergedPartners;
+        activitiesRef.current = result.mergedActivities;
+        setPartners(result.mergedPartners);
+        setActivities(result.mergedActivities);
+        saveToLocal(result.mergedPartners, result.mergedActivities);
+      }
+    });
   }, []);
 
   const updatePartner = useCallback((id: string, updates: Partial<Partner>) => {
+    markPartnerDirty(id);
     setPartners((prev) => {
       const next = prev.map((p) => (p.id === id ? { ...p, ...updates } : p));
       partnersRef.current = next;
-      persistAll(next, activitiesRef.current);
+      persistAll();
       return next;
     });
   }, [persistAll]);
 
   const updateStatus = useCallback((id: string, status: PipelineStatus) => {
+    markPartnerDirty(id);
     setPartners((prev) => {
       const partner = prev.find((p) => p.id === id);
       const next = prev.map((p) => (p.id === id ? { ...p, status } : p));
@@ -63,10 +80,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         details: `${partner?.status} → ${status}`,
         timestamp: new Date().toISOString(),
       };
+      addLocalActivity(newActivity);
       setActivities((prevA) => {
         const nextA = [newActivity, ...prevA];
         activitiesRef.current = nextA;
-        persistAll(next, nextA);
+        persistAll();
         return nextA;
       });
 
@@ -74,22 +92,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [persistAll]);
 
-  const addActivity = useCallback((activity: Omit<Activity, 'id' | 'timestamp'>) => {
+  const addActivityFn = useCallback((activity: Omit<Activity, 'id' | 'timestamp'>) => {
     const newActivity: Activity = {
       ...activity,
       id: Date.now().toString(),
       timestamp: new Date().toISOString(),
     };
+    addLocalActivity(newActivity);
     setActivities((prev) => {
       const next = [newActivity, ...prev];
       activitiesRef.current = next;
-      persistAll(partnersRef.current, next);
+      persistAll();
       return next;
     });
   }, [persistAll]);
 
   return (
-    <StoreContext.Provider value={{ partners, activities, syncStatus, updatePartner, updateStatus, addActivity, loading }}>
+    <StoreContext.Provider value={{ partners, activities, syncStatus, updatePartner, updateStatus, addActivity: addActivityFn, loading }}>
       {children}
     </StoreContext.Provider>
   );
