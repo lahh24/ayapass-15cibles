@@ -39,7 +39,7 @@ export function loadFromLocal(): { partners: Partner[] | null; activities: Activ
 export async function fetchFromCloud(sheet: string): Promise<Record<string, string>[] | null> {
   if (!SYNC_API_URL) return null;
   try {
-    const res = await fetch(`${SYNC_API_URL}?sheet=${sheet}`, { cache: 'no-store' });
+    const res = await fetch(`${SYNC_API_URL}?sheet=${sheet}`, { mode: 'cors', redirect: 'follow', cache: 'no-store' });
     const json = await res.json();
     if (json.success && json.data) return json.data;
     return null;
@@ -59,17 +59,14 @@ export async function syncToCloud(
   }
   onStatus('syncing');
   try {
-    const res = await fetch(SYNC_API_URL, {
+    await fetch(SYNC_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ sheet, action: 'sync', data }),
     });
-    const json = await res.json();
-    if (json.success) {
-      onStatus('synced');
-    } else {
-      onStatus('error');
-    }
+    // no-cors returns opaque response — assume success if no error thrown
+    onStatus('synced');
   } catch {
     onStatus('error');
   }
