@@ -87,6 +87,14 @@ export function addLocalActivity(activity: Activity) {
   localNewActivities.push(activity);
 }
 
+export function hasDirtyPartners(): boolean {
+  return dirtyPartnerIds.size > 0;
+}
+
+export function isPartnerDirty(id: string): boolean {
+  return dirtyPartnerIds.has(id);
+}
+
 /**
  * Pull-merge-push with mutex:
  * - Only one sync can run at a time

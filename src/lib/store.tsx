@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Partner, Activity, SyncStatus, PipelineStatus } from '@/types';
-import { loadInitialData, saveToLocal, pullMergePush, pollCloudData, markPartnerDirty, addLocalActivity } from './sync';
+import { loadInitialData, saveToLocal, pullMergePush, pollCloudData, markPartnerDirty, addLocalActivity, isPartnerDirty, hasDirtyPartners } from './sync';
 
 const POLL_INTERVAL = 30_000; // 30 seconds
 const DEBOUNCE_MS = 5_000;   // 5 seconds debounce before syncing
@@ -56,13 +56,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (loading) return;
 
     const poll = async () => {
+      // Skip polling if there are pending local changes — let pullMergePush handle it
+      if (hasDirtyPartners()) {
+        console.log('[poll] Skipping — dirty partners pending sync');
+        return;
+      }
+
       setPolling(true);
       try {
         const result = await pollCloudData();
         if (result) {
+          // Cloud is base, but preserve any locally-dirty partners (safety check)
           const cloudMap = new Map(result.partners.map((p) => [p.id, p]));
           for (const p of partnersRef.current) {
-            if (!cloudMap.has(p.id)) cloudMap.set(p.id, p);
+            if (isPartnerDirty(p.id) || !cloudMap.has(p.id)) {
+              cloudMap.set(p.id, p);
+            }
           }
           const merged = Array.from(cloudMap.values());
 
