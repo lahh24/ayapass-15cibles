@@ -27,7 +27,13 @@ export default function PartnerDetail({ partner, onClose }: Props) {
 
   const handleAddNote = () => {
     if (!newNote.trim()) return;
+    const timestamp = new Date().toLocaleDateString('fr-FR');
+    const updatedNotes = partner.notes
+      ? `${partner.notes}\n[${timestamp}] ${newNote.trim()}`
+      : `[${timestamp}] ${newNote.trim()}`;
+    updatePartner(partner.id, { notes: updatedNotes });
     addActivity({ partnerId: partner.id, type: 'note', details: newNote });
+    setNotes(updatedNotes);
     setNewNote('');
   };
 
